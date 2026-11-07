@@ -1,0 +1,6 @@
+{
+  "name": "BrandGuard AI",
+  "description": "Futuristic mission-critical enterprise brand governance workspace and AI compliance engine with real-time token drift inspection and tone audit.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
