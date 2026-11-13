@@ -12,12 +12,12 @@ import {
   getServerSupabaseConfigStatus,
   isMissingSchemaError,
   verifyServerSupabaseConnection,
-} from './server/supabase';
+} from './server/supabase.js';
 import {
   analyzeVideoPipeline,
   checkFfmpegAvailable,
   type BrandContextForVideo,
-} from './server/videoAnalysis';
+} from './server/videoAnalysis.js';
 
 dotenv.config();
 
