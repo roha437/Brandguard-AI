@@ -68,34 +68,43 @@ export const RuleInspectorTerminal: React.FC<RuleInspectorTerminalProps> = ({
       );
     }
 
-    // Build parts highlighting violations
+    // Build parts highlighting all occurrences of each violation snippet
     let parts: Array<{ text: string; violation?: RuleViolation }> = [{ text: rawContent }];
 
     violations.forEach((violation) => {
+      const needle = violation.snippet?.trim();
+      if (!needle) return;
+
+      const lowerNeedle = needle.toLowerCase();
       const newParts: Array<{ text: string; violation?: RuleViolation }> = [];
+
       parts.forEach((part) => {
         if (part.violation) {
           newParts.push(part);
           return;
         }
 
-        const index = part.text.toLowerCase().indexOf(violation.snippet.toLowerCase());
-        if (index === -1) {
-          newParts.push(part);
-        } else {
-          if (index > 0) {
-            newParts.push({ text: part.text.substring(0, index) });
+        const source = part.text;
+        const lowerSource = source.toLowerCase();
+        let cursor = 0;
+
+        while (cursor < source.length) {
+          const matchIndex = lowerSource.indexOf(lowerNeedle, cursor);
+          if (matchIndex === -1) {
+            newParts.push({ text: source.slice(cursor) });
+            break;
+          }
+          if (matchIndex > cursor) {
+            newParts.push({ text: source.slice(cursor, matchIndex) });
           }
           newParts.push({
-            text: part.text.substring(index, index + violation.snippet.length),
+            text: source.slice(matchIndex, matchIndex + needle.length),
             violation,
           });
-          const remainder = part.text.substring(index + violation.snippet.length);
-          if (remainder.length > 0) {
-            newParts.push({ text: remainder });
-          }
+          cursor = matchIndex + needle.length;
         }
       });
+
       parts = newParts;
     });
 

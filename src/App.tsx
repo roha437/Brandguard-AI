@@ -1,27 +1,71 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Navbar, NavTab } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
 import { AuditStudioView } from './components/AuditStudioView';
 import { RuleEngineView } from './components/RuleEngineView';
 import { ChannelGuardView } from './components/ChannelGuardView';
 import { AuditHistoryView } from './components/AuditHistoryView';
+import { VideoGuardView } from './components/VideoGuardView';
+import { ReviewWorkflowView } from './components/ReviewWorkflowView';
 import { ViolationModal } from './components/ViolationModal';
-import { RuleViolation, AuditHistoryRecord, MarketingChannel } from './types/brandguard';
-import { SAMPLE_DRAFTS } from './data/mockData';
-import { Shield, Sparkles, CheckCircle2 } from 'lucide-react';
+import { AuthModal, AuthModalMode } from './components/AuthModal';
+import {
+  RuleViolation,
+  AuditHistoryRecord,
+  MarketingChannel,
+  AuditResult,
+  BrandRule,
+} from './types/brandguard';
+import { INITIAL_BRAND_RULES, SAMPLE_DRAFTS } from './data/mockData';
+import { useSupabase } from './contexts/SupabaseContext';
+import { Shield, CheckCircle2 } from 'lucide-react';
 
 export default function App() {
+  const { isRecoveryMode, authNotice, clearAuthNotice } = useSupabase();
+
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
   const [activeViolationModal, setActiveViolationModal] = useState<RuleViolation | null>(null);
   const [studioDraftContent, setStudioDraftContent] = useState<string>(SAMPLE_DRAFTS[0].content);
   const [studioChannel, setStudioChannel] = useState<string>(SAMPLE_DRAFTS[0].channel);
+  const [studioTitle, setStudioTitle] = useState<string>(SAMPLE_DRAFTS[0].title);
+  const [studioInitialAudit, setStudioInitialAudit] = useState<AuditResult | null>(null);
+  const [studioLoadKey, setStudioLoadKey] = useState<number>(0);
+
+  const [rules, setRules] = useState<BrandRule[]>(INITIAL_BRAND_RULES);
+  const [toneSettings, setToneSettings] = useState({
+    formality: 75,
+    authoritative: 60,
+    technical: 85,
+  });
+
+  const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
+  const [authModalMode, setAuthModalMode] = useState<AuthModalMode>('signin');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isRecoveryMode) {
+      setAuthModalMode('update_password');
+      setAuthModalOpen(true);
+    }
+  }, [isRecoveryMode]);
+
+  useEffect(() => {
+    if (authNotice) {
+      showToast(authNotice);
+      clearAuthNotice();
+    }
+  }, [authNotice, clearAuthNotice]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => {
-      setToastMessage(null);
-    }, 3000);
+      setToastMessage((prev) => (prev === msg ? null : prev));
+    }, 3200);
+  };
+
+  const openAuthModal = (mode: AuthModalMode) => {
+    setAuthModalMode(mode);
+    setAuthModalOpen(true);
   };
 
   const handleNavigateToStudio = (draftContent?: string, channel?: string) => {
@@ -31,15 +75,21 @@ export default function App() {
     if (channel !== undefined) {
       setStudioChannel(channel);
     }
+    setStudioTitle('Custom Campaign Compliance Audit');
+    setStudioInitialAudit(null);
+    setStudioLoadKey((k) => k + 1);
     setCurrentTab('audit_studio');
   };
 
   const handleTestChannel = (ch: MarketingChannel) => {
     setStudioChannel(ch);
-    const matchedSample = SAMPLE_DRAFTS.find(s => s.channel === ch);
+    const matchedSample = SAMPLE_DRAFTS.find((s) => s.channel === ch);
     if (matchedSample) {
       setStudioDraftContent(matchedSample.content);
+      setStudioTitle(matchedSample.title);
     }
+    setStudioInitialAudit(null);
+    setStudioLoadKey((k) => k + 1);
     setCurrentTab('audit_studio');
     showToast(`Loaded ${ch.toUpperCase()} Channel Profile into Audit Studio`);
   };
@@ -47,14 +97,43 @@ export default function App() {
   const handleInspectRecord = (rec: AuditHistoryRecord) => {
     setStudioDraftContent(rec.content);
     setStudioChannel(rec.channel);
+    setStudioTitle(rec.title);
+    if (rec.violations) {
+      setStudioInitialAudit({
+        id: rec.id,
+        title: rec.title,
+        timestamp: rec.timestamp,
+        brandProfileId: rec.brandProfileId ?? null,
+        brandName: rec.brandName ?? undefined,
+        overallScore: rec.score,
+        status: rec.status,
+        wordCount: rec.content.trim().split(/\s+/).filter(Boolean).length,
+        channel: rec.channel,
+        tokenDrift: {
+          formalDeviation: 0,
+          authoritativeDeviation: 0,
+          hyperboleFactor: rec.status === 'critical' ? 28 : rec.status === 'warning' ? 12 : 2,
+          vocabularyPrecision: rec.score,
+        },
+        summary: `Loaded historical audit snapshot (${rec.violationCount} deviation(s) recorded).`,
+        violations: rec.violations,
+        remediatedText: rec.remediatedText,
+      });
+    } else {
+      setStudioInitialAudit(null);
+    }
+    setStudioLoadKey((k) => k + 1);
     setCurrentTab('audit_studio');
-    showToast(`Loaded Audit Record ${rec.id} into Inspector`);
+    const shortId = rec.id.length > 12 ? `AUD-${rec.id.slice(0, 8).toUpperCase()}` : rec.id;
+    showToast(`Loaded Audit Record ${shortId} into Inspector`);
   };
 
   const handleApplyFixFromModal = (violation: RuleViolation) => {
     if (!violation.snippet || !violation.replacement) return;
-    const regex = new RegExp(violation.snippet.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-    setStudioDraftContent(prev => prev.replace(regex, violation.replacement));
+    const regex = new RegExp(violation.snippet.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    setStudioDraftContent((prev) => prev.replace(regex, violation.replacement));
+    setStudioInitialAudit(null);
+    setStudioLoadKey((k) => k + 1);
     showToast(`Remediated: "${violation.replacement}"`);
   };
 
@@ -71,8 +150,12 @@ export default function App() {
       <Navbar
         currentTab={currentTab}
         onTabChange={(tab) => setCurrentTab(tab)}
+        onOpenAuthModal={openAuthModal}
         onNewScan={() => {
           setStudioDraftContent('');
+          setStudioTitle('New Brand Compliance Scan');
+          setStudioInitialAudit(null);
+          setStudioLoadKey((k) => k + 1);
           setCurrentTab('audit_studio');
         }}
       />
@@ -90,10 +173,18 @@ export default function App() {
           <AuditStudioView
             initialContent={studioDraftContent}
             initialChannel={studioChannel}
+            initialTitle={studioTitle}
+            initialAuditResult={studioInitialAudit}
+            loadKey={studioLoadKey}
+            activeRules={rules}
+            toneSettings={toneSettings}
             onOpenViolationModal={(v) => setActiveViolationModal(v)}
+            onOpenAuthModal={openAuthModal}
+            onNavigateToReviewWorkflow={() => setCurrentTab('review_workflow')}
+            onToast={showToast}
             onAuditCompleted={(res) => {
               if (res.status === 'compliant') {
-                showToast(`Audit Verified: 100% Brand Compliant (${res.overallScore}%)`);
+                showToast(`Audit Verified: Brand Compliant (${res.overallScore}%)`);
               } else {
                 showToast(`Audit Completed: ${res.violations.length} deviations detected`);
               }
@@ -101,8 +192,30 @@ export default function App() {
           />
         )}
 
+        {currentTab === 'videoguard' && (
+          <VideoGuardView
+            onOpenAuthModal={openAuthModal}
+            onNavigateToReviewWorkflow={() => setCurrentTab('review_workflow')}
+            onToast={showToast}
+          />
+        )}
+
+        {currentTab === 'review_workflow' && (
+          <ReviewWorkflowView
+            onOpenAuthModal={openAuthModal}
+            onToast={showToast}
+          />
+        )}
+
         {currentTab === 'rule_engine' && (
-          <RuleEngineView />
+          <RuleEngineView
+            rules={rules}
+            onRulesChange={setRules}
+            toneSettings={toneSettings}
+            onToneSettingsChange={setToneSettings}
+            onOpenAuthModal={openAuthModal}
+            onToast={showToast}
+          />
         )}
 
         {currentTab === 'channel_guard' && (
@@ -110,7 +223,12 @@ export default function App() {
         )}
 
         {currentTab === 'audit_history' && (
-          <AuditHistoryView onInspectRecord={handleInspectRecord} />
+          <AuditHistoryView
+            onInspectRecord={handleInspectRecord}
+            onOpenAuthModal={openAuthModal}
+            onNavigateToReviewWorkflow={() => setCurrentTab('review_workflow')}
+            onToast={showToast}
+          />
         )}
       </main>
 
@@ -123,6 +241,14 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Auth / Profile Modal */}
+      <AuthModal
+        isOpen={authModalOpen}
+        initialMode={authModalMode}
+        onClose={() => setAuthModalOpen(false)}
+        onSuccessToast={showToast}
+      />
 
       {/* Specular Violation Drilldown Modal */}
       {activeViolationModal && (
